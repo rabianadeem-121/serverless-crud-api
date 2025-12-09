@@ -55,53 +55,74 @@ CREATE TABLE users (
     email VARCHAR(50) NOT NULL
 );
 
-Setup Instructions
-1. AWS Infrastructure
-1. Create a VPC with private subnets for Lambda and RDS.
-2. Create Security Groups:
-RDS-SG: Allow inbound PostgreSQL (port 5432) from Lambda-SG.
-Lambda-SG: Allow outbound traffic to RDS.
-3. Launch Amazon RDS PostgreSQL in private subnets.
-4. Enable CloudWatch Logging for Lambda.
-2. Deploy Lambda Function
-1. Upload index.js (single file with all CRUD logic) to Lambda.
-2. Add environment variables (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME).
-3. Attach Lambda to the VPC and select correct subnets and security group.
-4. Assign IAM role with Lambda execution permissions.
-> Note: The Lambda file contains all CRUD logic. The handler routes requests based on HTTP method and path.
-3. Configure API Gateway
-1. Create a REST API (Regional, TLS 1.3).
-2. Add resources and methods:
-/users → GET, POST
-/users/{id} → GET, PUT, DELETE
-3. Enable Lambda Proxy Integration for all methods.
-4. Deploy API to a stage (e.g., dev) to generate the Invoke URL.
-4. Test API
-Use Postman or curl for testing.
-Create User (POST /users)
+## Setup Instructions
+
+### **1. AWS Infrastructure**
+
+1. **Create a VPC** with private subnets for Lambda and RDS.  
+2. **Create Security Groups:**  
+   - **RDS-SG:** Allow inbound PostgreSQL (**port 5432**) from **Lambda-SG**.  
+   - **Lambda-SG:** Allow outbound traffic to RDS.  
+3. **Launch Amazon RDS PostgreSQL** in private subnets.  
+4. **Enable CloudWatch Logging** for Lambda.
+
+### **2. Deploy Lambda Function**
+
+1. **Upload `index.js`** (single file with all CRUD logic) to Lambda.  
+2. Add **environment variables**: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.  
+3. Attach Lambda to the **VPC** and select the correct subnets and security group.  
+4. Assign **IAM role** with Lambda execution permissions.  
+
+> **Note:** The Lambda file contains all CRUD logic. The handler routes requests based on HTTP method and path.
+
+### **3. Configure API Gateway**
+
+1. Create a **REST API** (Regional, TLS 1.3).  
+2. Add **resources and methods:**  
+   - `/users` → `GET`, `POST`  
+   - `/users/{id}` → `GET`, `PUT`, `DELETE`  
+3. Enable **Lambda Proxy Integration** for all methods.  
+4. Deploy API to a stage (e.g., `dev`) to generate the **Invoke URL**.
+
+### **4. Test API Endpoints**
+
+Use **Postman** or **curl** for testing:
+
+**Create User (POST /users)**
+
+```http
+POST https://<invoke-url>/users
+Content-Type: application/json
+
+{
+  "name": "Rabia",
+  "email": "rabia@example.com"
+}
+
+**Create User (POST /users)**
+```http
 POST https://<invoke-url>/users
 Body:
 {
   "name": "Rabia",
   "email": "rabia@example.com"
 }
-Get All Users (GET /users)
-GET https://<invoke-url>/users
-Get User by ID (GET /users/1)
-GET https://<invoke-url>/users/1
-Update User (PUT /users/1)
-PUT https://<invoke-url>/users/1
+**Get All Users (GET /users)**
+**GET https://<invoke-url>/users**
+**Get User by ID (GET /users/1)**
+**GET https://<invoke-url>/users/1**
+**Update User (PUT /users/1)**
+**PUT https://<invoke-url>/users/1**
 Body:
 {
   "name": "Rabia Updated",
   "email": "rabia.new@example.com"
 }
-Delete User (DELETE /users/1)
+**Delete User (DELETE /users/1)**
 DELETE https://<invoke-url>/users/1
 ---
-Testing & Logging
+### Testing & Logging
 Use Postman or curl to test each endpoint.
 All Lambda executions are logged in CloudWatch, including request method, body, SQL queries, and errors.
 
-Reply
 
