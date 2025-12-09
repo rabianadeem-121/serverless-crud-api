@@ -21,7 +21,25 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Set up SSH key
+        run: |
+          echo "${{ secrets.EC2_KEY }}" > ec2_key.pem
+          chmod 600 ec2_key.pem
+
+      - name: Start SSH tunnel to RDS
+        run: |
+          ssh -i ec2_key.pem -o StrictHostKeyChecking=no -N -L 5432:${{ secrets.DB_HOST }}:5432 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} &
+          echo "SSH tunnel started"
+
+      - name: Wait for tunnel
+        run: sleep 5
+
       - name: Run tests
+        env:
+          DB_HOST: localhost
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
         run: npm test || echo "Skipping tests temporarily"
 
   deploy:
@@ -54,21 +72,17 @@ jobs:
         run: |
           LAMBDA_NAME="${{ secrets.LAMBDA_FUNCTION_NAME }}"
 
-          # Check if alias exists
           if aws lambda get-alias --function-name $LAMBDA_NAME --name prod; then
               PREV_VERSION=$(aws lambda get-alias --function-name $LAMBDA_NAME --name prod --query 'FunctionVersion' --output text)
           else
-              # Publish current version if alias doesn't exist
               CUR_VERSION=$(aws lambda publish-version --function-name $LAMBDA_NAME --query 'Version' --output text)
               aws lambda create-alias --function-name $LAMBDA_NAME --name prod --function-version $CUR_VERSION
               PREV_VERSION=$CUR_VERSION
           fi
           echo "Previous Lambda version: $PREV_VERSION"
 
-          # Update Lambda code
           aws lambda update-function-code --function-name $LAMBDA_NAME --zip-file fileb://function.zip
 
-          # Wait until Lambda update is complete
           echo "Waiting for Lambda update to complete..."
           while true; do
               STATUS=$(aws lambda get-function --function-name $LAMBDA_NAME --query 'Configuration.LastUpdateStatus' --output text)
@@ -83,11 +97,9 @@ jobs:
               fi
           done
 
-          # Publish new version
           NEW_VERSION=$(aws lambda publish-version --function-name $LAMBDA_NAME --query 'Version' --output text)
           echo "New Lambda version: $NEW_VERSION"
 
-          # Update alias to new version, rollback if fails
           aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $NEW_VERSION || \
           aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $PREV_VERSION
 
