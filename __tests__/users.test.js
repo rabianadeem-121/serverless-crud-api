@@ -1,5 +1,7 @@
 // __tests__/users.test.js
+require('dotenv').config();  // loads .env file
 const { handler } = require('../index');
+
 
 describe('POST /users endpoint', () => {
   test('should create a new user and return status 201', async () => {
@@ -10,12 +12,11 @@ describe('POST /users endpoint', () => {
     };
 
     // Set RDS credentials
-    process.env.DB_HOST = process.env.DB_HOST;
-    process.env.DB_USER = process.env.DB_USER;
-    process.env.DB_PASSWORD = process.env.DB_PASSWORD;
-    process.env.DB_NAME = process.env.DB_NAME;
-    process.env.DB_PORT = process.env.DB_PORT || 5432;
-
+    //process.env.DB_HOST = process.env.DB_HOST;
+    //process.env.DB_USER = process.env.DB_USER;
+    //process.env.DB_PASSWORD = process.env.DB_PASSWORD;
+    //process.env.DB_NAME = process.env.DB_NAME;
+    //process.env.DB_PORT = process.env.DB_PORT || 5432;
     const response = await handler(event);
 
     expect(response.statusCode).toBe(201);

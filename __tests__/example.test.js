@@ -1,5 +1,7 @@
 // __tests__/example.test.js
+require('dotenv').config();  // loads .env file
 const { handler } = require('../index');
+
 
 describe('Lambda API tests', () => {
   test('GET /users should return status 200 and a list of users', async () => {
