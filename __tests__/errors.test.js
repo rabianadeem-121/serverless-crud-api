@@ -1,5 +1,6 @@
 // error.test.js
-const { handler } = require('./index');
+const { handler } = require('../index'); // go up one level
+
 
 describe('Error handling tests', () => {
 
