@@ -1,11 +1,9 @@
-# serverless-crud-api
+
 # Serverless CRUD REST API with AWS Lambda and RDS (PostgreSQL)
 ## Project Overview
 This project implements a **serverless CRUD (Create, Read, Update, Delete) REST API** using **Node.js**, **AWS Lambda**, **Amazon API Gateway**, and **Amazon RDS PostgreSQL**.
 The API allows users to perform CRUD operations on a `users` table in PostgreSQL. All requests are routed through **API Gateway** to a **single AWS Lambda function**, which interacts with the RDS database inside a **VPC** for secure access. CloudWatch logs monitor Lambda executions.
 ---
-## Architecture
-![Architecture Diagram](architecture-diagram.png)
 **Flow:**
 1. Client (Postman / Browser / App) sends HTTP request. 
 2. API Gateway receives the request and triggers Lambda. 
