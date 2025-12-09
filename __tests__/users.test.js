@@ -1,15 +1,20 @@
-// users.test.js
-const { handler } = require('../index'); // go up one level
-
+// __tests__/users.test.js
+const { handler } = require('../index');
 
 describe('POST /users endpoint', () => {
-
   test('should create a new user and return status 201', async () => {
     const event = {
       httpMethod: 'POST',
       path: '/users',
-      body: JSON.stringify({ name: 'John Doe', email: 'john@example.com' })
+      body: JSON.stringify({ name: 'John Doe', email: 'john@example.com' }),
     };
+
+    // Set RDS credentials
+    process.env.DB_HOST = process.env.DB_HOST;
+    process.env.DB_USER = process.env.DB_USER;
+    process.env.DB_PASSWORD = process.env.DB_PASSWORD;
+    process.env.DB_NAME = process.env.DB_NAME;
+    process.env.DB_PORT = process.env.DB_PORT || 5432;
 
     const response = await handler(event);
 
@@ -20,5 +25,4 @@ describe('POST /users endpoint', () => {
     expect(body.email).toBe('john@example.com');
     expect(body.id).toBeDefined();
   });
-
 });

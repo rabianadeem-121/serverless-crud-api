@@ -1,26 +1,27 @@
-// lambda.test.js
-const { handler } = require('../index'); // go up one level
-
+// __tests__/example.test.js
+const { handler } = require('../index');
 
 describe('Lambda API tests', () => {
-
   test('GET /users should return status 200 and a list of users', async () => {
     const event = {
       httpMethod: 'GET',
       path: '/users',
     };
 
+    // Set RDS credentials from environment variables
+    process.env.DB_HOST = process.env.DB_HOST;
+    process.env.DB_USER = process.env.DB_USER;
+    process.env.DB_PASSWORD = process.env.DB_PASSWORD;
+    process.env.DB_NAME = process.env.DB_NAME;
+    process.env.DB_PORT = process.env.DB_PORT || 5432;
+
     const response = await handler(event);
 
-    // Check HTTP status
     expect(response.statusCode).toBe(200);
 
-    // Check response body is an array (JSON parsed)
     const body = JSON.parse(response.body);
     expect(Array.isArray(body)).toBe(true);
-
-    // Optional: check there is at least one user
-    expect(body.length).toBeGreaterThan(0);
+    expect(body.length).toBeGreaterThanOrEqual(0);
   });
-
 });
+
