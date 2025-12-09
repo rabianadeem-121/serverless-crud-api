@@ -1,15 +1,17 @@
 const { Client } = require('pg');
 
 exports.handler = async (event) => {
-    // Create a NEW client inside handler
+    // Force IPv4 for SSH tunnel
     const client = new Client({
-        host: process.env.DB_HOST,
+        host: process.env.DB_HOST || '127.0.0.1', // default to 127.0.0.1
         user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
         database: process.env.DB_NAME,
         port: 5432,
         ssl: { rejectUnauthorized: false } // IMPORTANT for RDS
     });
+
+    console.log('Connecting to PostgreSQL on host:', client.host); // debug log
 
     await client.connect();
 
