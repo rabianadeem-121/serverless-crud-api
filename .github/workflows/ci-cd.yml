@@ -1,0 +1,82 @@
+name: CI/CD Node.js → AWS Lambda + API Gateway with Rollback
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Zip project
+        run: zip -r function.zip .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy Lambda with rollback
+        id: deploy
+        run: |
+          # Get current Lambda version of prod alias
+          PREV_VERSION=$(aws lambda get-alias --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} --name prod --query 'FunctionVersion' --output text)
+          echo "Previous Lambda version: $PREV_VERSION"
+
+          # Update function code
+          aws lambda update-function-code \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://function.zip
+
+          # Publish a new version
+          NEW_VERSION=$(aws lambda publish-version --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} --query 'Version' --output text)
+          echo "New Lambda version: $NEW_VERSION"
+
+          # Update alias to new version
+          aws lambda update-alias \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --name prod \
+            --function-version $NEW_VERSION || \
+            # If alias update fails, rollback to previous version
+            aws lambda update-alias \
+              --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+              --name prod \
+              --function-version $PREV_VERSION
+
+      - name: Deploy API Gateway
+        run: |
+          aws apigateway create-deployment \
+            --rest-api-id ${{ secrets.API_ID }} \
+            --stage-name ${{ secrets.STAGE_NAME }} \
+            --description "Deployed via GitHub Actions"
