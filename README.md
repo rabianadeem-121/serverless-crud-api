@@ -54,7 +54,7 @@ CREATE TABLE users (
     name VARCHAR(50) NOT NULL,
     email VARCHAR(50) NOT NULL
 );
-
+```
 ## Setup Instructions
 
 ### **1. AWS Infrastructure**
@@ -98,7 +98,7 @@ Content-Type: application/json
   "name": "Rabia",
   "email": "rabia@example.com"
 }
-
+```
 **Create User (POST /users)**
 ```http
 POST https://<invoke-url>/users
@@ -107,19 +107,28 @@ Body:
   "name": "Rabia",
   "email": "rabia@example.com"
 }
+```
 **Get All Users (GET /users)**
-**GET https://<invoke-url>/users**
+```http
+GET https://<invoke-url>/users
+```
 **Get User by ID (GET /users/1)**
-**GET https://<invoke-url>/users/1**
+```http
+GET https://<invoke-url>/users/1
+```
 **Update User (PUT /users/1)**
-**PUT https://<invoke-url>/users/1**
+```http
+PUT https://<invoke-url>/users/1
 Body:
 {
   "name": "Rabia Updated",
   "email": "rabia.new@example.com"
 }
+```
 **Delete User (DELETE /users/1)**
+```http
 DELETE https://<invoke-url>/users/1
+```
 ---
 ### Testing & Logging
 Use Postman or curl to test each endpoint.
