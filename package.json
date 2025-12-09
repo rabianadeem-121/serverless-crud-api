@@ -1,16 +1,24 @@
 {
   "name": "lambda-crud",
   "version": "1.0.0",
-  "description": "",
+  "description": "Node.js Lambda CRUD project with CI/CD",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "test": "jest",
+    "build": "echo \"No build step needed\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node"
   }
 }
