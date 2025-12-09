@@ -1,5 +1,5 @@
 // lambda.test.js
-const { handler } = require('../index.js'); 
+const { handler } = require('./index'); // replace './index' with your Lambda file
 
 describe('Lambda API tests', () => {
 
