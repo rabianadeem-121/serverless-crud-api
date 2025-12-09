@@ -1,4 +1,4 @@
-nname: CI/CD Node.js → AWS Lambda + API Gateway with Rollback
+name: CI/CD Node.js → AWS Lambda + API Gateway with Rollback
 
 on:
   push:
