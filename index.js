@@ -1,4 +1,4 @@
-onst { Client } = require('pg');
+const { Client } = require('pg');
 
 exports.handler = async (event) => {
 
@@ -66,4 +66,5 @@ const client = new Client({
         body: JSON.stringify(body)
     };
 };
+
 
