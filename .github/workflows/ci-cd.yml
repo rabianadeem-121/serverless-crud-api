@@ -8,10 +8,10 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest  # GitHub-hosted runner
+    runs-on: ubuntu-latest
     permissions:
-      id-token: write     # Required for OIDC
-      contents: read      # Required to checkout repo
+      id-token: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -30,11 +30,16 @@ jobs:
           chmod 600 ec2_key.pem
           ssh -i ec2_key.pem -o StrictHostKeyChecking=no -N -L 5432:${{ secrets.DB_HOST }}:5432 ec2-user@${{ secrets.EC2_HOST }} &
           echo "SSH tunnel started"
-          sleep 5
+          # Wait until port 5432 is open
+          for i in {1..10}; do
+            nc -z 127.0.0.1 5432 && break
+            echo "Waiting for SSH tunnel to be ready..."
+            sleep 2
+          done
 
       - name: Run tests
         env:
-          DB_HOST: localhost
+          DB_HOST: 127.0.0.1
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
@@ -43,10 +48,10 @@ jobs:
 
   deploy:
     needs: build-and-test
-    runs-on: ubuntu-latest  # GitHub-hosted runner
+    runs-on: ubuntu-latest
     permissions:
-      id-token: write     # Required for OIDC
-      contents: read      # Required to checkout repo
+      id-token: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -111,3 +116,4 @@ jobs:
             --rest-api-id ${{ secrets.API_ID }} \
             --stage-name ${{ secrets.STAGE_NAME }} \
             --description "Deployed via GitHub Actions"
+
