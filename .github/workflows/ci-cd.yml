@@ -9,6 +9,9 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest  # GitHub-hosted runner
+    permissions:
+      id-token: write     # Required for OIDC
+      contents: read      # Required to checkout repo
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -41,16 +44,13 @@ jobs:
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest  # GitHub-hosted runner
+    permissions:
+      id-token: write     # Required for OIDC
+      contents: read      # Required to checkout repo
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: Generate and display OIDC token
-        run: |
-          echo "Requesting OIDC token..."
-          ID_TOKEN=$(curl -sX GET \
-            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL")
-          echo "OIDC token: $ID_TOKEN"
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
