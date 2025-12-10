@@ -8,8 +8,9 @@ on:
 
 jobs:
   build-and-test:
-    # Run on self-hosted runner inside the VPC
-    runs-on: [self-hosted, linux]
+
+    runs-on: [self-hosted, linux]  # Runs inside your VPC for RDS access
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -24,7 +25,9 @@ jobs:
 
       - name: Run tests
         env:
-          DB_HOST: ${{ secrets.DB_HOST }}         # RDS private endpoint
+      # RDS private endpoint
+
+          DB_HOST: ${{ secrets.DB_HOST }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
@@ -49,12 +52,12 @@ jobs:
       - name: Zip project
         run: zip -r function.zip .
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::011664843975:role/github-permissions
           aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: github-actions-deploy
 
       - name: Deploy Lambda with rollback
         id: deploy
