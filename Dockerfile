@@ -1,15 +1,16 @@
-# Base image
 FROM node:18
 
-# Set working directory
 WORKDIR /app
 
-# Copy package.json and install dependencies
+# Install SSH client & netcat
+RUN apt-get update && \
+    apt-get install -y openssh-client netcat && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 RUN npm install
 
-# Copy all source files
 COPY . .
 
-# Default command (can be overridden in GitHub Actions)
-CMD ["npm", "test"]
+EXPOSE 3000
+CMD ["npm", "start"]
