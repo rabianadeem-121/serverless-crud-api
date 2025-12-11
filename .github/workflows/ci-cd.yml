@@ -1,4 +1,4 @@
-name: CI/CD Node.js → AWS Lambda + API Gateway with Rollback
+name: CI/CD Node.js → AWS Lambda + API Gateway
 
 on:
   push:
@@ -7,66 +7,75 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-test:
-
-    runs-on: ubuntu-latest  # GitHub-hosted runner
-    permissions:
-      id-token: write   # Required for OIDC
-      contents: read    # Required to checkout repo
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-
-      - name: Setup SSH tunnel to private RDS
-        run: |
-          echo "${{ secrets.EC2_KEY }}" > ec2_key.pem
-          chmod 600 ec2_key.pem
-
-          # Open local port 15432 to private RDS through EC2
-          ssh -i ec2_key.pem -o StrictHostKeyChecking=no -N -L 15432:${{ secrets.DB_HOST }}:5432 ec2-user@${{ secrets.EC2_HOST }} &
-          TUNNEL_PID=$!
-          echo "SSH tunnel started on port 15432"
-          # Wait until port 15432 is open
-          for i in {1..15}; do
-            nc -z 127.0.0.1 15432 && break
-            echo "Waiting for SSH tunnel to be ready..."
-            sleep 2
-          done
-          echo "SSH tunnel ready"
-
-
-      - name: Run tests
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 15432
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-        run: npm test || echo "Skipping tests temporarily"
-
-      - name: Kill SSH tunnel
-        if: always()
-        run: kill $TUNNEL_PID || true
-
-  deploy:
-    needs: build-and-test
+  infra:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init & Apply
+        run: |
+          cd terraform
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Save Terraform outputs
+        id: tf
+        run: |
+          cd terraform
+          echo "EC2_IP=$(terraform output -raw ec2_public_ip)" >> $GITHUB_ENV
+          echo "RDS_ENDPOINT=$(terraform output -raw rds_endpoint)" >> $GITHUB_ENV
+
+  test:
+    needs: infra
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        run: docker build -t crud-api .
+
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.EC2_KEY }}" > ec2_key.pem
+          chmod 600 ec2_key.pem
+
+      - name: Run tests in Docker with SSH tunnel to private RDS
+        run: |
+          docker run --rm \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_USER=${{ secrets.DB_USER }} \
+            -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+            -e DB_NAME=${{ secrets.DB_NAME }} \
+            -e DB_PORT=${{ secrets.DB_PORT }} \
+            -v $PWD/ec2_key.pem:/root/ec2_key.pem:ro \
+            crud-api bash -c "
+              echo 'Starting SSH tunnel to private RDS...'
+              ssh -o StrictHostKeyChecking=no -i /root/ec2_key.pem -N -L 5432:$RDS_ENDPOINT:5432 ec2-user@$EC2_IP &
+              # Wait until port is open
+              for i in {1..15}; do nc -z 127.0.0.1 5432 && break; echo 'Waiting for SSH tunnel...'; sleep 2; done
+              echo 'SSH tunnel ready. Running tests...'
+              npm test
+            "
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -87,7 +96,6 @@ jobs:
           role-session-name: github-actions-deploy
 
       - name: Deploy Lambda with rollback
-        id: deploy
         run: |
           LAMBDA_NAME="${{ secrets.LAMBDA_FUNCTION_NAME }}"
 
@@ -106,19 +114,12 @@ jobs:
           while true; do
               STATUS=$(aws lambda get-function --function-name $LAMBDA_NAME --query 'Configuration.LastUpdateStatus' --output text)
               echo "Lambda update status: $STATUS"
-              if [ "$STATUS" == "Successful" ]; then
-                  break
-              elif [ "$STATUS" == "Failed" ]; then
-                  echo "Lambda update failed. Exiting."
-                  exit 1
-              else
-                  sleep 5
-              fi
+              if [ "$STATUS" == "Successful" ]; then break; 
+              elif [ "$STATUS" == "Failed" ]; then echo "Lambda update failed"; exit 1; 
+              else sleep 5; fi
           done
 
           NEW_VERSION=$(aws lambda publish-version --function-name $LAMBDA_NAME --query 'Version' --output text)
-          echo "New Lambda version: $NEW_VERSION"
-
           aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $NEW_VERSION || \
           aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $PREV_VERSION
 
