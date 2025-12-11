@@ -1,4 +1,4 @@
-name: CI/CD Node.js → AWS Lambda + API Gateway with Rollback + Terraform
+name: CI/CD Node.js → AWS Lambda + API Gateway + Terraform Infra
 
 on:
   push:
@@ -7,36 +7,11 @@ on:
     branches: [ main ]
 
 jobs:
-  terraform-apply:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write       # Required for OIDC
-      contents: read        # Required to checkout repo
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.15.0-alpha20251203
-
-      - name: Terraform Init
-        working-directory: ./terraform
-        run: terraform init
-
-      - name: Terraform Apply
-        working-directory: ./terraform
-        env:
-          TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-        run: terraform apply -auto-approve
-
   build-and-test:
-    needs: terraform-apply
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
-      contents: read
+      id-token: write     # Required for OIDC
+      contents: read      # Required to checkout repo
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -53,11 +28,11 @@ jobs:
         run: |
           echo "${{ secrets.EC2_KEY }}" > ec2_key.pem
           chmod 600 ec2_key.pem
-          ssh -i ec2_key.pem -o StrictHostKeyChecking=no -N -L 15432:${{ secrets.DB_HOST }}:5432 ec2-user@${{ secrets.EC2_HOST }} &
-          echo "SSH tunnel started on port 15432"
-          # Wait until port is ready
-          for i in {1..15}; do
-            nc -z 127.0.0.1 15432 && break
+          ssh -i ec2_key.pem -o StrictHostKeyChecking=no -N -L 5432:${{ secrets.DB_HOST }}:5432 ec2-user@${{ secrets.EC2_HOST }} &
+          echo "SSH tunnel started"
+          # Wait until port 5432 is ready
+          for i in {1..10}; do
+            nc -z 127.0.0.1 5432 && break
             echo "Waiting for SSH tunnel to be ready..."
             sleep 2
           done
@@ -68,11 +43,31 @@ jobs:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
-          DB_PORT: 15432
+          DB_PORT: ${{ secrets.DB_PORT }}
         run: npm test || echo "Skipping tests temporarily"
 
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.15.0-alpha20251203
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Terraform Apply
+        run: terraform apply -input=false tfplan
+
   deploy:
-    needs: build-and-test
+    needs: [build-and-test, terraform]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -111,7 +106,6 @@ jobs:
               aws lambda create-alias --function-name $LAMBDA_NAME --name prod --function-version $CUR_VERSION
               PREV_VERSION=$CUR_VERSION
           fi
-          echo "Previous Lambda version: $PREV_VERSION"
 
           aws lambda update-function-code --function-name $LAMBDA_NAME --zip-file fileb://function.zip
 
@@ -130,8 +124,6 @@ jobs:
           done
 
           NEW_VERSION=$(aws lambda publish-version --function-name $LAMBDA_NAME --query 'Version' --output text)
-          echo "New Lambda version: $NEW_VERSION"
-
           aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $NEW_VERSION || \
           aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $PREV_VERSION
 
