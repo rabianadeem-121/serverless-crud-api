@@ -1,4 +1,4 @@
-name: CI/CD Node.js → AWS Lambda + API Gateway + Terraform
+name: CI/CD Node.js → AWS Lambda + API Gateway via Terraform + Docker
 
 on:
   push:
@@ -7,76 +7,49 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-test:
+  terraform-deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # Required for OIDC
-      contents: read    # Required to checkout repo
+      id-token: write     # Required for OIDC
+      contents: read      # Required to checkout repo
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }} # Role with full permissions
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      PUBLIC_KEY: ${{ secrets.PUBLIC_KEY }}
+
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Build Docker image for tests
-        run: |
-          docker build -t lambda-crud-api:latest .
-
-      - name: Run tests inside Docker
-        run: |
-          docker run --rm \
-            -e DB_HOST=${{ secrets.DB_HOST }} \
-            -e DB_USER=${{ secrets.DB_USER }} \
-            -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-            -e DB_NAME=${{ secrets.DB_NAME }} \
-            -e DB_PORT=${{ secrets.DB_PORT }} \
-            lambda-crud-api:latest \
-            npm test || echo "Skipping tests temporarily"
-
-  terraform:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: arn:aws:iam::011664843975:role/github-permissions
-          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.15.0-alpha20251203
 
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: github-actions-deploy
+
       - name: Terraform Init
-        working-directory: terraform
         run: terraform init
 
       - name: Terraform Plan
-        working-directory: terraform
-        run: terraform plan -out=tfplan -input=false -var "public_key=${{ secrets.EC2_PUBLIC_KEY }}"
+        run: terraform plan -out=tfplan -input=false -var "public_key=${{ secrets.PUBLIC_KEY }}"
 
       - name: Terraform Apply
-        working-directory: terraform
         run: terraform apply -input=false tfplan
 
-  deploy:
-    needs: terraform
+  build-and-deploy-lambda:
+    needs: terraform-deploy
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -93,7 +66,7 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: arn:aws:iam::011664843975:role/github-permissions
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: github-actions-deploy
 
@@ -101,6 +74,7 @@ jobs:
         id: deploy
         run: |
           LAMBDA_NAME="${{ secrets.LAMBDA_FUNCTION_NAME }}"
+
           if aws lambda get-alias --function-name $LAMBDA_NAME --name prod; then
               PREV_VERSION=$(aws lambda get-alias --function-name $LAMBDA_NAME --name prod --query 'FunctionVersion' --output text)
           else
