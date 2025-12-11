@@ -5,3 +5,6 @@ variable "private_subnet_cidr" { default = "10.0.2.0/24" }
 variable "db_username" { default = "admin" }
 variable "db_password" { default = "ChangeMe123!" }
 variable "instance_type" { default = "t3.micro" }
+variable "public_key" {
+  type = string
+}

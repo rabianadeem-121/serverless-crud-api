@@ -51,10 +51,9 @@ resource "aws_instance" "ci_cd" {
   key_name      = aws_key_pair.key_pair.key_name
 }
 
-# Key Pair
 resource "aws_key_pair" "key_pair" {
-  key_name   = "ci_cd_key"
-  public_key = file("~/.ssh/id_rsa.pub")
+  key_name   = "my-key"
+  public_key = var.public_key
 }
 
 # RDS
@@ -63,13 +62,15 @@ resource "aws_db_instance" "postgres" {
   engine            = "postgres"
   instance_class    = "db.t3.micro"
   allocated_storage = 20
-  name              = "cruddb"
+  db_name           = "cruddb"     # database name
   username          = var.db_username
   password          = var.db_password
+
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
   publicly_accessible    = false
 }
+
 
 resource "aws_db_subnet_group" "main" {
   name       = "main"
