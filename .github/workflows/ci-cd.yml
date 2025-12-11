@@ -63,7 +63,7 @@ jobs:
 
       - name: Terraform Plan
         working-directory: terraform
-        run: terraform plan -out=tfplan -input=false
+        run: terraform plan -out=tfplan -input=false -var "public_key=${{ secrets.EC2_PUBLIC_KEY }}"
 
       - name: Terraform Apply
         working-directory: terraform

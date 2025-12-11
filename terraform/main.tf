@@ -52,7 +52,7 @@ resource "aws_instance" "ci_cd" {
 }
 
 resource "aws_key_pair" "key_pair" {
-  key_name   = "my-key"
+  key_name   = "github-actions-key"
   public_key = var.public_key
 }
 
