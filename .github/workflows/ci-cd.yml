@@ -42,36 +42,27 @@ jobs:
       - name: Terraform Apply
         working-directory: ./terraform
         run: terraform apply -input=false tfplan
-      - name: Get Terraform outputs
+
+      # ✅ Safely export Terraform outputs to GitHub Actions env
+      - name: Set Terraform outputs as env
         id: tf_outputs
         working-directory: ./terraform
         run: |
-          echo "RDS_ENDPOINT=$(terraform output -raw rds_endpoint)" >> $GITHUB_ENV
+          echo "DB_HOST=$(terraform output -raw rds_host)" >> $GITHUB_ENV
+          echo "DB_PORT=$(terraform output -raw rds_port)" >> $GITHUB_ENV
+          echo "DB_NAME=${{ secrets.DB_NAME }}" >> $GITHUB_ENV
+          echo "DB_USER=${{ secrets.DB_USER }}" >> $GITHUB_ENV
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
 
-  
   build-and-test:
-    needs : terraform
+    needs: terraform
     runs-on: ubuntu-latest
     permissions:
-      id-token: write  # Required for OIDC
-      contents: read   # Checkout repo
-    env:
-      DB_HOST: ${{ secrets.DB_HOST }}
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
-      DB_PORT: ${{ secrets.DB_PORT }}
+      id-token: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
-      - name: Set DB environment variables
-        run: |
-          echo "DB_HOST=$RDS_ENDPOINT" >> $GITHUB_ENV
-          echo "DB_USER=${{ secrets.DB_USER }}" >> $GITHUB_ENV
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
-          echo "DB_NAME=${{ secrets.DB_NAME }}" >> $GITHUB_ENV
-          echo "DB_PORT=${{ secrets.DB_PORT }}" >> $GITHUB_ENV
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -82,8 +73,14 @@ jobs:
         run: npm install
 
       - name: Run tests
+        env:
+          # ✅ Use DB_HOST/DB_PORT from terraform output
+          DB_HOST: ${{ env.DB_HOST }}
+          DB_PORT: ${{ env.DB_PORT }}
+          DB_NAME: ${{ env.DB_NAME }}
+          DB_USER: ${{ env.DB_USER }}
+          DB_PASSWORD: ${{ env.DB_PASSWORD }}
         run: npm test || echo "Skipping tests temporarily"
-
 
   deploy:
     needs: terraform
