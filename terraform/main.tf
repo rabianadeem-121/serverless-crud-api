@@ -89,7 +89,7 @@ resource "aws_key_pair" "key_pair" {
 # EC2 for SSH tunnel / CI/CD testing
 # --------------------------
 resource "aws_instance" "ci_cd" {
-  ami             = "ami-0f5ae0b5c59e0a26c" # your preferred Linux AMI
+  ami             = "ami-00ca570c1b6d79f36" # your preferred Linux AMI
   instance_type   = var.instance_type
   subnet_id       = aws_subnet.public_a.id
   security_groups = [aws_security_group.ec2_sg.name]
