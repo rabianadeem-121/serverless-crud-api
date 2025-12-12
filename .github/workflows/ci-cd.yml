@@ -9,7 +9,6 @@ on:
 jobs:
   terraform:
     runs-on: ubuntu-latest
-    needs: build-and-test
     permissions:
       id-token: write
       contents: read
@@ -73,7 +72,7 @@ jobs:
           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
           echo "DB_NAME=${{ secrets.DB_NAME }}" >> $GITHUB_ENV
           echo "DB_PORT=${{ secrets.DB_PORT }}" >> $GITHUB_ENV
-          
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
