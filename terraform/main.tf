@@ -89,7 +89,7 @@ resource "aws_key_pair" "key_pair" {
 # EC2 for SSH tunnel / CI/CD testing
 # --------------------------
 resource "aws_instance" "ci_cd" {
-  ami             = "ami-0abcdef1234567890" # your preferred Linux AMI
+  ami             = "ami-0f5ae0b5c59e0a26c" # your preferred Linux AMI
   instance_type   = var.instance_type
   subnet_id       = aws_subnet.public_a.id
   security_groups = [aws_security_group.ec2_sg.name]
@@ -101,7 +101,7 @@ resource "aws_instance" "ci_cd" {
 # RDS Subnet Group (2 private subnets for AZ coverage)
 # --------------------------
 resource "aws_db_subnet_group" "main" {
-  name       = "main"
+  name       = "main_crud"
   subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
 
