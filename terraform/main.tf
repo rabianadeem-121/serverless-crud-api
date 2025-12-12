@@ -1,72 +1,50 @@
-# Variables (make sure these exist in variables.tf)
-# var.vpc_cidr
-# var.public_subnet_cidr_a
-# var.public_subnet_cidr_b
-# var.private_subnet_cidr_a
-# var.private_subnet_cidr_b
-# var.instance_type
-# var.public_key
-# var.db_username
-# var.db_password
-
-# --------------------------
-# VPC
-# --------------------------
+# 1. VPC
 resource "aws_vpc" "main" {
-  cidr_block = var.vpc_cidr
+  cidr_block = "10.0.0.0/16"
 }
 
-# --------------------------
-# Public Subnets (2 AZs)
-# --------------------------
-resource "aws_subnet" "public_a" {
+# 2. Public Subnet for NAT
+resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidr_a
+  cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
-  availability_zone       = "ap-south-1a"
 }
 
-resource "aws_subnet" "public_b" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidr_b
-  map_public_ip_on_launch = true
-  availability_zone       = "ap-south-1b"
+# 3. Private Subnet for RDS + Lambda
+resource "aws_subnet" "private" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.2.0/24"
 }
 
-# --------------------------
-# Private Subnets (2 AZs for RDS)
-# --------------------------
-resource "aws_subnet" "private_a" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidr_a
-  availability_zone = "ap-south-1a"
-}
-
-resource "aws_subnet" "private_b" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidr_b
-  availability_zone = "ap-south-1b"
-}
-
-# --------------------------
-# Internet Gateway
-# --------------------------
+# 4. Internet Gateway + Route Table for public subnet
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
 }
 
-# --------------------------
-# Security Group for EC2 / SSH
-# --------------------------
-resource "aws_security_group" "ec2_sg" {
-  name   = "ec2_sg"
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.gw.id
+  }
+}
+
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.public.id
+}
+
+# 5. Security Group
+resource "aws_security_group" "rds_sg" {
+  name   = "rds_sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
-    from_port   = 22
-    to_port     = 22
+    description = "PostgreSQL from Lambda"
+    from_port   = 5432
+    to_port     = 5432
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/16"] # internal VPC
   }
 
   egress {
@@ -77,201 +55,100 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
-# --------------------------
-# EC2 Key Pair
-# --------------------------
-resource "aws_key_pair" "key_pair" {
-  key_name   = "github-actions-key-unique-2" # changed name to avoid duplicate
-  public_key = var.public_key
+# 6. RDS PostgreSQL
+resource "aws_db_subnet_group" "rds_subnets" {
+  name       = "rds-subnet-group"
+  subnet_ids = [aws_subnet.private.id]
 }
 
-# --------------------------
-# EC2 for SSH tunnel / CI/CD testing
-# --------------------------
-resource "aws_instance" "ci_cd" {
-  ami             = "ami-00ca570c1b6d79f36" # your preferred Linux AMI
-  instance_type   = var.instance_type
-  subnet_id       = aws_subnet.public_a.id
-
-  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
-  key_name = aws_key_pair.key_pair.key_name
-  
-  tags = {
-    Name = "ci-cd-instance"
-  }
-}
-
-# --------------------------
-# RDS Subnet Group (2 private subnets for AZ coverage)
-# --------------------------
-resource "aws_db_subnet_group" "main" {
-  name       = "main_crud"
-  subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-}
-
-# --------------------------
-# RDS PostgreSQL
-# --------------------------
 resource "aws_db_instance" "postgres" {
-  identifier        = "crud-rds"
-  engine            = "postgres"
-  instance_class    = "db.t3.micro"
-  allocated_storage = 20
-  username          = var.db_username
-  password          = var.db_password
-  db_name           = "cruddb"
-
-  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
-  db_subnet_group_name   = aws_db_subnet_group.main.name
-  publicly_accessible    = false
+  allocated_storage    = 20
+  engine               = "postgres"
+  engine_version       = "15.3"
+  instance_class       = "db.t3.micro"
+  db_name                 = var.db_name
+  username             = var.db_username
+  password             = var.db_password
+  skip_final_snapshot  = true
+  publicly_accessible  = false
+  db_subnet_group_name = aws_db_subnet_group.rds_subnets.name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
 }
 
-# IAM Role for Lambda
+# 7. ECR Repository for Docker image
+resource "aws_ecr_repository" "crud_api" {
+  name = "crud-api"
+}
+
+# 8. IAM Role for Lambda
 resource "aws_iam_role" "lambda_exec" {
-  name = "lambda_exec_role"
+  name = "lambda-exec-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
   })
 }
 
-# Attach basic execution policy
-resource "aws_iam_role_policy_attachment" "lambda_policy" {
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lambda Function
-resource "aws_lambda_function" "my_lambda" {
-  function_name = "my-function"
-  handler       = "index.handler"       # Make sure index.js exports `handler`
-  runtime       = "nodejs24.x"
+# 9. Lambda Function using container image
+resource "aws_lambda_function" "crud_api" {
+  function_name = var.lambda_function_name
+  package_type  = "Image"
+  image_uri     = "${aws_ecr_repository.crud_api.repository_url}:${var.docker_image_tag}"
   role          = aws_iam_role.lambda_exec.arn
-  filename      = "../function.zip"     # Relative path to your zipped code
-  source_code_hash = filebase64sha256("../function.zip")
-  environment {
-    variables = {
-      DB_HOST     = var.db_host
-      DB_USER     = var.db_user
-      DB_PASSWORD = var.db_password
-      DB_NAME     = var.db_name
-      DB_PORT     = var.db_port
-    }
+  timeout       = 15
+  memory_size   = 512
+  vpc_config {
+    subnet_ids         = [aws_subnet.private.id]
+    security_group_ids = [aws_security_group.rds_sg.id]
   }
 }
 
-# API Gateway REST API
-resource "aws_api_gateway_rest_api" "my_api" {
-  name        = "my-api"
-  description = "API for Lambda CRUD"
+# 10. API Gateway HTTP API
+resource "aws_apigatewayv2_api" "http_api" {
+  name          = "crud-api"
+  protocol_type = "HTTP"
 }
 
-# Root Resource: /users
-resource "aws_api_gateway_resource" "users" {
-  rest_api_id = aws_api_gateway_rest_api.my_api.id
-  parent_id   = aws_api_gateway_rest_api.my_api.root_resource_id
-  path_part   = "users"
+resource "aws_apigatewayv2_integration" "lambda_integration" {
+  api_id           = aws_apigatewayv2_api.http_api.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.crud_api.arn
 }
 
-# Resource: /users/{id} for PUT, DELETE
-resource "aws_api_gateway_resource" "user_id" {
-  rest_api_id = aws_api_gateway_rest_api.my_api.id
-  parent_id   = aws_api_gateway_resource.users.id
-  path_part   = "{id}"
+resource "aws_apigatewayv2_route" "default" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "ANY /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
-# --- Methods and Integrations ---
-
-# GET /users
-resource "aws_api_gateway_method" "get_users" {
-  rest_api_id   = aws_api_gateway_rest_api.my_api.id
-  resource_id   = aws_api_gateway_resource.users.id
-  http_method   = "GET"
-  authorization = "NONE"
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.http_api.id
+  name        = "prod"
+  auto_deploy = true
 }
 
-resource "aws_api_gateway_integration" "lambda_get_users" {
-  rest_api_id             = aws_api_gateway_rest_api.my_api.id
-  resource_id             = aws_api_gateway_resource.users.id
-  http_method             = aws_api_gateway_method.get_users.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.my_lambda.invoke_arn
+# Lambda permission to allow API Gateway to invoke
+resource "aws_lambda_permission" "api_gateway" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.crud_api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
 
-# POST /users
-resource "aws_api_gateway_method" "post_users" {
-  rest_api_id   = aws_api_gateway_rest_api.my_api.id
-  resource_id   = aws_api_gateway_resource.users.id
-  http_method   = "POST"
-  authorization = "NONE"
+output "api_endpoint" {
+  value = aws_apigatewayv2_stage.default.invoke_url
 }
 
-resource "aws_api_gateway_integration" "lambda_post_users" {
-  rest_api_id             = aws_api_gateway_rest_api.my_api.id
-  resource_id             = aws_api_gateway_resource.users.id
-  http_method             = aws_api_gateway_method.post_users.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.my_lambda.invoke_arn
-}
-
-# PUT /users/{id}
-resource "aws_api_gateway_method" "put_user" {
-  rest_api_id   = aws_api_gateway_rest_api.my_api.id
-  resource_id   = aws_api_gateway_resource.user_id.id
-  http_method   = "PUT"
-  authorization = "NONE"
-}
-
-resource "aws_api_gateway_integration" "lambda_put_user" {
-  rest_api_id             = aws_api_gateway_rest_api.my_api.id
-  resource_id             = aws_api_gateway_resource.user_id.id
-  http_method             = aws_api_gateway_method.put_user.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.my_lambda.invoke_arn
-}
-
-# DELETE /users/{id}
-resource "aws_api_gateway_method" "delete_user" {
-  rest_api_id   = aws_api_gateway_rest_api.my_api.id
-  resource_id   = aws_api_gateway_resource.user_id.id
-  http_method   = "DELETE"
-  authorization = "NONE"
-}
-
-resource "aws_api_gateway_integration" "lambda_delete_user" {
-  rest_api_id             = aws_api_gateway_rest_api.my_api.id
-  resource_id             = aws_api_gateway_resource.user_id.id
-  http_method             = aws_api_gateway_method.delete_user.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.my_lambda.invoke_arn
-}
-
-# Deployment
-resource "aws_api_gateway_deployment" "deployment" {
-  depends_on = [
-    aws_api_gateway_integration.lambda_get_users,
-    aws_api_gateway_integration.lambda_post_users,
-    aws_api_gateway_integration.lambda_put_user,
-    aws_api_gateway_integration.lambda_delete_user
-  ]
-  rest_api_id = aws_api_gateway_rest_api.my_api.id
-}
-
-# Stage
-resource "aws_api_gateway_stage" "prod" {
-  deployment_id = aws_api_gateway_deployment.deployment.id
-  rest_api_id   = aws_api_gateway_rest_api.my_api.id
-  stage_name    = "prod"
+output "rds_endpoint" {
+  value = aws_db_instance.postgres.address
 }

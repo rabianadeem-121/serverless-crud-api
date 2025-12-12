@@ -1,20 +1,17 @@
-# Use official Node.js image
-FROM node:18
-
-# Install SSH client & netcat
-RUN apt-get update && \
-    apt-get install -y openssh-client netcat-openbsd && \
-    rm -rf /var/lib/apt/lists/*
+FROM node:18-alpine
 
 # Set working directory
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Copy package files and install dependencies
+# Copy package.json and install dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy the rest of the code
+# Copy app code
 COPY . .
 
-# Default command (run tests or app)
-CMD ["npm", "test"]
+# Expose port (optional, Lambda doesn't need it but for local testing)
+EXPOSE 3000
+
+# Start the app
+CMD ["node", "index.js"]
