@@ -92,9 +92,13 @@ resource "aws_instance" "ci_cd" {
   ami             = "ami-00ca570c1b6d79f36" # your preferred Linux AMI
   instance_type   = var.instance_type
   subnet_id       = aws_subnet.public_a.id
-  security_groups = [aws_security_group.ec2_sg.name]
+
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   key_name = aws_key_pair.key_pair.key_name
+  
+  tags = {
+    Name = "ci-cd-instance"
+  }
 }
 
 # --------------------------
