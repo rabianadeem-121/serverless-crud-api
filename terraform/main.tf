@@ -81,7 +81,7 @@ resource "aws_security_group" "ec2_sg" {
 # EC2 Key Pair
 # --------------------------
 resource "aws_key_pair" "key_pair" {
-  key_name   = "github-actions-key-unique" # changed name to avoid duplicate
+  key_name   = "github-actions-key-unique-2" # changed name to avoid duplicate
   public_key = var.public_key
 }
 
