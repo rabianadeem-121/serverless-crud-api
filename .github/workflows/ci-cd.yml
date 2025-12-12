@@ -15,6 +15,7 @@ jobs:
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -28,34 +29,42 @@ jobs:
       TF_VAR_db_username: ${{ secrets.DB_USER }}
       TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
       TF_VAR_db_name: ${{ secrets.DB_NAME }}
-      ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+      ECR_REPO_NAME: "crud-lambda"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup AWS credentials via OIDC
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to ECR
+      - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ secrets.AWS_REGION }}
+
+      - name: Create ECR repository if not exists
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPO_NAME }} || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPO_NAME }}
+          echo "ECR repository '${{ env.ECR_REPO_NAME }}' ready."
 
       - name: Build Docker image
         run: |
+          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:latest
+          echo "Building Docker image..."
           docker build -t crud-lambda .
-<<<<<<< HEAD
-
           docker tag crud-lambda:latest $IMAGE_URI
           echo "Docker image tagged as $IMAGE_URI"
-=======
-          docker tag crud-lambda:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/crud-lambda:latest
->>>>>>> c73b217 (set up changed)
 
       - name: Push Docker image to ECR
-        run:  docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/crud-lambda:latest
-
+        run: |
+          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:latest
+          echo "Pushing Docker image to ECR..."
+          docker push $IMAGE_URI
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
