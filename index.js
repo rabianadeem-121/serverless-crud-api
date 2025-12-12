@@ -1,5 +1,4 @@
 const { Client } = require('pg');
-const { handler } = require('../index');
 
 
 exports.handler = async (event) => {

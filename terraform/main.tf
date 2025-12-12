@@ -125,3 +125,153 @@ resource "aws_db_instance" "postgres" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
   publicly_accessible    = false
 }
+
+# IAM Role for Lambda
+resource "aws_iam_role" "lambda_exec" {
+  name = "lambda_exec_role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# Attach basic execution policy
+resource "aws_iam_role_policy_attachment" "lambda_policy" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Lambda Function
+resource "aws_lambda_function" "my_lambda" {
+  function_name = "my-function"
+  handler       = "index.handler"       # Make sure index.js exports `handler`
+  runtime       = "nodejs24.x"
+  role          = aws_iam_role.lambda_exec.arn
+  filename      = "../function.zip"     # Relative path to your zipped code
+  source_code_hash = filebase64sha256("../function.zip")
+  environment {
+    variables = {
+      DB_HOST     = var.db_host
+      DB_USER     = var.db_user
+      DB_PASSWORD = var.db_password
+      DB_NAME     = var.db_name
+      DB_PORT     = var.db_port
+    }
+  }
+}
+
+# API Gateway REST API
+resource "aws_api_gateway_rest_api" "my_api" {
+  name        = "my-api"
+  description = "API for Lambda CRUD"
+}
+
+# Root Resource: /users
+resource "aws_api_gateway_resource" "users" {
+  rest_api_id = aws_api_gateway_rest_api.my_api.id
+  parent_id   = aws_api_gateway_rest_api.my_api.root_resource_id
+  path_part   = "users"
+}
+
+# Resource: /users/{id} for PUT, DELETE
+resource "aws_api_gateway_resource" "user_id" {
+  rest_api_id = aws_api_gateway_rest_api.my_api.id
+  parent_id   = aws_api_gateway_resource.users.id
+  path_part   = "{id}"
+}
+
+# --- Methods and Integrations ---
+
+# GET /users
+resource "aws_api_gateway_method" "get_users" {
+  rest_api_id   = aws_api_gateway_rest_api.my_api.id
+  resource_id   = aws_api_gateway_resource.users.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "lambda_get_users" {
+  rest_api_id             = aws_api_gateway_rest_api.my_api.id
+  resource_id             = aws_api_gateway_resource.users.id
+  http_method             = aws_api_gateway_method.get_users.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.my_lambda.invoke_arn
+}
+
+# POST /users
+resource "aws_api_gateway_method" "post_users" {
+  rest_api_id   = aws_api_gateway_rest_api.my_api.id
+  resource_id   = aws_api_gateway_resource.users.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "lambda_post_users" {
+  rest_api_id             = aws_api_gateway_rest_api.my_api.id
+  resource_id             = aws_api_gateway_resource.users.id
+  http_method             = aws_api_gateway_method.post_users.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.my_lambda.invoke_arn
+}
+
+# PUT /users/{id}
+resource "aws_api_gateway_method" "put_user" {
+  rest_api_id   = aws_api_gateway_rest_api.my_api.id
+  resource_id   = aws_api_gateway_resource.user_id.id
+  http_method   = "PUT"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "lambda_put_user" {
+  rest_api_id             = aws_api_gateway_rest_api.my_api.id
+  resource_id             = aws_api_gateway_resource.user_id.id
+  http_method             = aws_api_gateway_method.put_user.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.my_lambda.invoke_arn
+}
+
+# DELETE /users/{id}
+resource "aws_api_gateway_method" "delete_user" {
+  rest_api_id   = aws_api_gateway_rest_api.my_api.id
+  resource_id   = aws_api_gateway_resource.user_id.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "lambda_delete_user" {
+  rest_api_id             = aws_api_gateway_rest_api.my_api.id
+  resource_id             = aws_api_gateway_resource.user_id.id
+  http_method             = aws_api_gateway_method.delete_user.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.my_lambda.invoke_arn
+}
+
+# Deployment
+resource "aws_api_gateway_deployment" "deployment" {
+  depends_on = [
+    aws_api_gateway_integration.lambda_get_users,
+    aws_api_gateway_integration.lambda_post_users,
+    aws_api_gateway_integration.lambda_put_user,
+    aws_api_gateway_integration.lambda_delete_user
+  ]
+  rest_api_id = aws_api_gateway_rest_api.my_api.id
+}
+
+# Stage
+resource "aws_api_gateway_stage" "prod" {
+  deployment_id = aws_api_gateway_deployment.deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.my_api.id
+  stage_name    = "prod"
+}

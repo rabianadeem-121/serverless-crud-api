@@ -33,3 +33,24 @@ variable "private_subnet_cidr_b" {
   default     = "10.0.11.0/24"
 }
 
+variable "db_host" {
+  description = "RDS database host endpoint"
+  type        = string
+}
+
+variable "db_user" {
+  description = "Database username"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_name" {
+  description = "Database name"
+  type        = string
+}
+
+variable "db_port" {
+  description = "Database port"
+  type        = number
+  default     = 5432
+}
