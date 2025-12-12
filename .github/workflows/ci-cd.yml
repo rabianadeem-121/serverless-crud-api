@@ -45,10 +45,10 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t crud-lambda .
-          docker tag crud-lambda:latest ${{ secrets.ECR_REPO_URI }}:latest
+          docker tag crud-lambda:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/crud-lambda:latest
 
       - name: Push Docker image to ECR
-        run: docker push ${{ secrets.ECR_REPO_URI }}:latest
+        run:  docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/crud-lambda:latest
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
