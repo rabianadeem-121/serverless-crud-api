@@ -1,21 +1,9 @@
-// __tests__/example.test.js
-require('dotenv').config();  // loads .env file
+require('dotenv').config(); // loads local .env if available
 const { handler } = require('../index');
-
 
 describe('Lambda API tests', () => {
   test('GET /users should return status 200 and a list of users', async () => {
-    const event = {
-      httpMethod: 'GET',
-      path: '/users',
-    };
-
-    // Set RDS credentials
-    //process.env.DB_HOST = process.env.DB_HOST;
-    //process.env.DB_USER = process.env.DB_USER;
-    //process.env.DB_PASSWORD = process.env.DB_PASSWORD;
-    //process.env.DB_NAME = process.env.DB_NAME;
-    //process.env.DB_PORT = process.env.DB_PORT || 5432;
+    const event = { httpMethod: 'GET', path: '/users' };
 
     const response = await handler(event);
 

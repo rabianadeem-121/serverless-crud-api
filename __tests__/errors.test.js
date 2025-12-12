@@ -1,13 +1,12 @@
-// __tests__/errors.test.js
-require('dotenv').config(); // loads your .env before tests
-const { handler } = require('../index'); // adjust path if your Lambda file is named differently
+require('dotenv').config(); // loads local .env if available
+const { handler } = require('../index'); // adjust path if needed
 
 describe('Error handling tests', () => {
 
   test('GET /users/:id returns 404 if user does not exist', async () => {
     const event = {
       httpMethod: 'GET',
-      pathParameters: { id: '999999' } // use a non-existing user ID
+      pathParameters: { id: '999999' } // non-existing user ID
     };
 
     const response = await handler(event);
@@ -20,7 +19,7 @@ describe('Error handling tests', () => {
   test('PUT /users/:id returns 404 if user does not exist', async () => {
     const event = {
       httpMethod: 'PUT',
-      pathParameters: { id: '999999' }, // non-existing ID
+      pathParameters: { id: '999999' },
       body: JSON.stringify({ name: 'Test', email: 'test@example.com' })
     };
 
@@ -34,7 +33,7 @@ describe('Error handling tests', () => {
   test('DELETE /users/:id returns 404 if user does not exist', async () => {
     const event = {
       httpMethod: 'DELETE',
-      pathParameters: { id: '999999' } // non-existing ID
+      pathParameters: { id: '999999' }
     };
 
     const response = await handler(event);
