@@ -60,6 +60,7 @@ variable "db_name" {
 variable "lambda_image_uri" {
   description = "Docker image URI for Lambda"
   type        = string
+  default = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/crud-lambda:latest"
 }
 
 variable "lambda_function_name" { default = "crud-lambda" }
