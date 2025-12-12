@@ -1,5 +1,6 @@
-require('dotenv').config(); // loads local .env if available
-const { handler } = require('../index');
+if (!process.env.GITHUB_ACTIONS) {
+  require('dotenv').config();
+}
 
 describe('POST /users endpoint', () => {
   test('should create a new user and return status 201', async () => {

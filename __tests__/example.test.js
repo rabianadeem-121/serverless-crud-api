@@ -1,4 +1,7 @@
-require('dotenv').config(); // loads local .env if available
+if (!process.env.GITHUB_ACTIONS) {
+  require('dotenv').config();
+}
+
 const { handler } = require('../index');
 
 describe('Lambda API tests', () => {
