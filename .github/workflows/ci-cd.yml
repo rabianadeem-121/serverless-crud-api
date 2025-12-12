@@ -52,19 +52,18 @@ jobs:
           aws ecr create-repository --repository-name ${{ env.ECR_REPO_NAME }}
           echo "ECR repository '${{ env.ECR_REPO_NAME }}' ready."
 
-      - name: Build Docker image
+      - name: Build and tag Docker image
         run: |
-          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:latest
-          echo "Building Docker image..."
+          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/crud-lambda:latest
           docker build -t crud-lambda .
           docker tag crud-lambda:latest $IMAGE_URI
-          echo "Docker image tagged as $IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
 
       - name: Push Docker image to ECR
         run: |
-          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:latest
-          echo "Pushing Docker image to ECR..."
-          docker push $IMAGE_URI
+          docker push ${{ env.IMAGE_URI }}
+
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
