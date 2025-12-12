@@ -48,8 +48,8 @@ jobs:
         id: tf_outputs
         working-directory: ./terraform
         run: |
-          echo "DB_HOST=$(terraform output -raw rds_host)" >> $GITHUB_ENV
-          echo "DB_PORT=$(terraform output -raw rds_port)" >> $GITHUB_ENV
+          echo "DB_HOST=$(terraform output -raw rds_host | tr -d '\n')" >> $GITHUB_ENV
+          echo "DB_PORT=$(terraform output -raw rds_port | tr -d '\n')" >> $GITHUB_ENV
           echo "DB_NAME=${{ secrets.DB_NAME }}" >> $GITHUB_ENV
           echo "DB_USER=${{ secrets.DB_USER }}" >> $GITHUB_ENV
           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
