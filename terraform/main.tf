@@ -1,15 +1,3 @@
-# =========================================
-# VARIABLES: Make sure they exist in variables.tf
-# var.vpc_cidr
-# var.public_subnet_cidr_a
-# var.public_subnet_cidr_b
-# var.private_subnet_cidr_a
-# var.private_subnet_cidr_b
-# var.db_username
-# var.db_password
-# var.aws_region
-# =========================================
-
 # --------------------------
 # VPC
 # --------------------------
@@ -19,13 +7,14 @@ resource "aws_vpc" "main" {
 }
 
 # --------------------------
-# Public Subnets (for NAT, optional)
+# Public Subnets (2 AZs)
 # --------------------------
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.public_subnet_cidr_a
   map_public_ip_on_launch = true
   availability_zone       = "ap-south-1a"
+  tags = { Name = "public-subnet-a" }
 }
 
 resource "aws_subnet" "public_b" {
@@ -33,21 +22,24 @@ resource "aws_subnet" "public_b" {
   cidr_block              = var.public_subnet_cidr_b
   map_public_ip_on_launch = true
   availability_zone       = "ap-south-1b"
+  tags = { Name = "public-subnet-b" }
 }
 
 # --------------------------
-# Private Subnets (for RDS and Lambda)
+# Private Subnets (2 AZs for RDS)
 # --------------------------
 resource "aws_subnet" "private_a" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = var.private_subnet_cidr_a
   availability_zone = "ap-south-1a"
+  tags = { Name = "private-subnet-a" }
 }
 
 resource "aws_subnet" "private_b" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = var.private_subnet_cidr_b
   availability_zone = "ap-south-1b"
+  tags = { Name = "private-subnet-b" }
 }
 
 # --------------------------
@@ -55,63 +47,31 @@ resource "aws_subnet" "private_b" {
 # --------------------------
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "crud-gw" }
+  tags   = { Name = "crud-igw" }
 }
 
 # --------------------------
-# NAT Gateway for private subnets (Lambda needs outbound access)
+# Security Groups
 # --------------------------
-resource "aws_eip" "nat" {
-  vpc = true
-}
-
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public_a.id
-}
-
-# --------------------------
-# Route Tables
-# --------------------------
-resource "aws_route_table" "public" {
+resource "aws_security_group" "ec2_sg" {
+  name   = "ec2_sg"
   vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.gw.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
-resource "aws_route_table_association" "public_a" {
-  subnet_id      = aws_subnet.public_a.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "public_b" {
-  subnet_id      = aws_subnet.public_b.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
-  }
-}
-
-resource "aws_route_table_association" "private_a" {
-  subnet_id      = aws_subnet.private_a.id
-  route_table_id = aws_route_table.private.id
-}
-
-resource "aws_route_table_association" "private_b" {
-  subnet_id      = aws_subnet.private_b.id
-  route_table_id = aws_route_table.private.id
-}
-
-# --------------------------
-# Security Group for Lambda → RDS
-# --------------------------
 resource "aws_security_group" "rds_sg" {
   name   = "rds_sg"
   vpc_id = aws_vpc.main.id
@@ -120,7 +80,7 @@ resource "aws_security_group" "rds_sg" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.lambda_sg.id]
+    security_groups = [aws_security_group.ec2_sg.id] # allow EC2 and Lambda
   }
 
   egress {
@@ -131,10 +91,16 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
-# Security Group for Lambda outbound
 resource "aws_security_group" "lambda_sg" {
   name   = "lambda_sg"
   vpc_id = aws_vpc.main.id
+
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.rds_sg.id]
+  }
 
   egress {
     from_port   = 0
@@ -142,13 +108,33 @@ resource "aws_security_group" "lambda_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# --------------------------
+# EC2 Key Pair (optional)
+# --------------------------
+resource "aws_key_pair" "key_pair" {
+  key_name   = "github-actions-key"
+  public_key = var.public_key
+}
+
+# --------------------------
+# EC2 Instance (optional)
+# --------------------------
+resource "aws_instance" "ci_cd" {
+  ami             = "ami-00ca570c1b6d79f36" # change to preferred Linux AMI
+  instance_type   = var.instance_type
+  subnet_id       = aws_subnet.public_a.id
+  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
+  key_name = aws_key_pair.key_pair.key_name
+  tags = { Name = "ci-cd-instance" }
 }
 
 # --------------------------
 # RDS Subnet Group
 # --------------------------
 resource "aws_db_subnet_group" "main" {
-  name       = "main_crud"
+  name       = "crud-subnet-group"
   subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
 
@@ -162,8 +148,7 @@ resource "aws_db_instance" "postgres" {
   allocated_storage = 20
   username          = var.db_username
   password          = var.db_password
-  db_name           = "cruddb"
-
+  db_name           = var.db_name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
   publicly_accessible    = false
@@ -173,7 +158,7 @@ resource "aws_db_instance" "postgres" {
 # --------------------------
 # IAM Role for Lambda
 # --------------------------
-resource "aws_iam_role" "lambda_exec_role" {
+resource "aws_iam_role" "lambda_exec" {
   name = "lambda-exec-role"
 
   assume_role_policy = jsonencode({
@@ -186,76 +171,56 @@ resource "aws_iam_role" "lambda_exec_role" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda_exec_role.name
+resource "aws_iam_role_policy_attachment" "lambda_basic_exec" {
+  role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# --------------------------
-# ECR Repository for Lambda Docker
-# --------------------------
-resource "aws_ecr_repository" "lambda_repo" {
-  name = "crud-lambda-repo"
+resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-# --------------------------
-# Lambda function (Docker)
-# --------------------------
-resource "aws_lambda_function" "crud_lambda" {
-  function_name = "crud-lambda-docker"
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
-  role          = aws_iam_role.lambda_exec_role.arn
-  timeout       = 10
-  memory_size   = 512
-  vpc_config {
-    subnet_ids         = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-    security_group_ids = [aws_security_group.lambda_sg.id]
-  }
-  environment {
-    variables = {
-      DB_HOST     = aws_db_instance.postgres.address
-      DB_PORT     = aws_db_instance.postgres.port
-      DB_NAME     = aws_db_instance.postgres.db_name
-      DB_USER     = var.db_username
-      DB_PASSWORD = var.db_password
-    }
-  }
-}
 
 # --------------------------
 # API Gateway
 # --------------------------
-resource "aws_apigateway_rest_api" "api" {
-  name = "crud-api"
+resource "aws_api_gateway_rest_api" "crud_api" {
+  name        = "crud-api"
+  description = "CRUD API Gateway"
 }
 
-resource "aws_apigateway_resource" "users" {
-  rest_api_id = aws_apigateway_rest_api.api.id
-  parent_id   = aws_apigateway_rest_api.api.root_resource_id
+resource "aws_api_gateway_resource" "users" {
+  rest_api_id = aws_apigateway_rest_api.crud_api.id
+  parent_id   = aws_apigateway_rest_api.crud_api.root_resource_id
   path_part   = "users"
 }
 
-resource "aws_apigateway_method" "users_any" {
-  rest_api_id   = aws_apigateway_rest_api.api.id
+resource "aws_api_gateway_method" "users_get" {
+  rest_api_id   = aws_apigateway_rest_api.crud_api.id
   resource_id   = aws_apigateway_resource.users.id
-  http_method   = "ANY"
+  http_method   = "GET"
   authorization = "NONE"
 }
 
-resource "aws_apigateway_integration" "users_any" {
-  rest_api_id             = aws_apigateway_rest_api.api.id
+resource "aws_api_gateway_integration" "users_get" {
+  rest_api_id             = aws_apigateway_rest_api.crud_api.id
   resource_id             = aws_apigateway_resource.users.id
-  http_method             = aws_apigateway_method.users_any.http_method
+  http_method             = aws_apigateway_method.users_get.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.crud_lambda.invoke_arn
 }
 
-resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.crud_lambda.function_name
-  principal     = "apigateway.amazonaws.com"
+// ...existing code...
+resource "aws_api_gateway_deployment" "prod" {
+  depends_on = [aws_apigateway_integration.users_get]
+  rest_api_id = aws_apigateway_rest_api.crud_api.id
+  # stage_name removed — deployments don't manage stages
 }
 
+resource "aws_api_gateway_stage" "prod" {
+  deployment_id = aws_api_gateway_deployment.prod.id
+  rest_api_id   = aws_apigateway_rest_api.crud_api.id
+  stage_name    = "prod"
+}
