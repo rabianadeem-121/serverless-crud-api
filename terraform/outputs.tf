@@ -1,15 +1,25 @@
-output "lambda_function_name" {
-  value = aws_lambda_function.crud_api.function_name
+output "rds_endpoint" {
+  value       = aws_db_instance.postgres.address
+  description = "RDS PostgreSQL endpoint"
 }
 
-output "api_id" {
-  value = aws_apigatewayv2_api.http_api.id
+output "rds_port" {
+  value       = aws_db_instance.postgres.port
+  description = "RDS PostgreSQL port"
+}
+
+output "lambda_function_name" {
+  value       = aws_lambda_function.crud_lambda.function_name
+  description = "Lambda function name"
 }
 
 output "api_url" {
-  value = aws_apigatewayv2_stage.default.invoke_url
+  value       = "${aws_apigateway_rest_api.api.execution_arn}/users"
+  description = "API Gateway URL for /users endpoint"
 }
 
-output "rds_host" {
-  value = aws_db_instance.postgres.address
+output "ecr_repo_uri" {
+  value       = aws_ecr_repository.lambda_repo.repository_url
+  description = "ECR repository URI"
 }
+

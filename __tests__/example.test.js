@@ -1,5 +1,5 @@
 if (!process.env.GITHUB_ACTIONS) {
-  require('dotenv').config();
+  require('dotenv').config(); // for local testing
 }
 
 const { handler } = require('../index');
@@ -9,7 +9,6 @@ describe('Lambda API tests', () => {
     const event = { httpMethod: 'GET', path: '/users' };
 
     const response = await handler(event);
-
     expect(response.statusCode).toBe(200);
 
     const body = JSON.parse(response.body);
@@ -17,4 +16,3 @@ describe('Lambda API tests', () => {
     expect(body.length).toBeGreaterThanOrEqual(0);
   });
 });
-

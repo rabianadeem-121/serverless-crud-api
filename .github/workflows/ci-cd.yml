@@ -1,4 +1,4 @@
-name: CI/CD Node.js → AWS Lambda + API Gateway + Terraform
+name: CI/CD Node.js → Lambda Docker + Terraform
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  terraform:
+  build-deploy-test:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -15,145 +15,62 @@ jobs:
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
-      TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}   # GitHub secret for EC2 public key
+      DB_NAME: ${{ secrets.DB_NAME }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      TF_VAR_vpc_cidr: "10.0.0.0/16"
+      TF_VAR_public_subnet_cidr_a: "10.0.1.0/24"
+      TF_VAR_public_subnet_cidr_b: "10.0.2.0/24"
+      TF_VAR_private_subnet_cidr_a: "10.0.10.0/24"
+      TF_VAR_private_subnet_cidr_b: "10.0.11.0/24"
+      TF_VAR_instance_type: "t3.micro"
+      TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
+      TF_VAR_db_username: ${{ secrets.DB_USER }}
+      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+      TF_VAR_db_name: ${{ secrets.DB_NAME }}
+      ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Setup AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build Docker image
+        run: |
+          docker build -t crud-lambda .
+          docker tag crud-lambda:latest ${{ secrets.ECR_REPO_URI }}:latest
+
+      - name: Push Docker image to ECR
+        run: docker push ${{ secrets.ECR_REPO_URI }}:latest
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.15.0-alpha20251203
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
       - name: Terraform Init
-        working-directory: ./terraform
-        run: terraform init
+        run: terraform -chdir=./terraform init
 
       - name: Terraform Plan
-        working-directory: ./terraform
-        run: terraform plan -out=tfplan -input=false
+        run: terraform -chdir=./terraform plan -out=tfplan -input=false
 
       - name: Terraform Apply
-        working-directory: ./terraform
-        run: terraform apply -input=false tfplan
+        run: terraform -chdir=./terraform apply -input=false tfplan
 
-      # ✅ Safely export Terraform outputs to GitHub Actions env
-      - name: Set Terraform outputs as env
-        id: tf_outputs
-        working-directory: ./terraform
-        run: |
-          echo "DB_HOST=$(terraform output -raw rds_endpoint | tr -d '\n')" >> $GITHUB_ENV
-          echo "DB_PORT=$(terraform output -raw rds_port | tr -d '\n')" >> $GITHUB_ENV
-          echo "DB_NAME=${{ secrets.DB_NAME }}" >> $GITHUB_ENV
-          echo "DB_USER=${{ secrets.DB_USER }}" >> $GITHUB_ENV
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
-
-  build-and-test:
-    needs: terraform
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
+      - name: Set API_URL from Terraform output
+        run: echo "API_URL=$(terraform -chdir=./terraform output -raw api_url)" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
+      - name: Run integration tests
         env:
-          # ✅ Use DB_HOST/DB_PORT from terraform output
-          DB_HOST: ${{ env.DB_HOST }}
-          DB_PORT: ${{ env.DB_PORT }}
-          DB_NAME: ${{ env.DB_NAME }}
-          DB_USER: ${{ env.DB_USER }}
-          DB_PASSWORD: ${{ env.DB_PASSWORD }}
-        run: npm test || echo "Skipping tests temporarily"
-
-  deploy:
-    needs: terraform
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Zip project
-        run: |
-          cd ./terraform
-          zip -r ../function.zip ../index.js ../package.json ../node_modules
-
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-          role-session-name: github-actions-deploy
-
-      - name: Deploy Lambda with rollback
-        id: deploy
-        run: |
-          LAMBDA_NAME="${{ secrets.LAMBDA_FUNCTION_NAME }}"
-
-          if aws lambda get-alias --function-name $LAMBDA_NAME --name prod; then
-              PREV_VERSION=$(aws lambda get-alias --function-name $LAMBDA_NAME --name prod --query 'FunctionVersion' --output text)
-          else
-              CUR_VERSION=$(aws lambda publish-version --function-name $LAMBDA_NAME --query 'Version' --output text)
-              aws lambda create-alias --function-name $LAMBDA_NAME --name prod --function-version $CUR_VERSION
-              PREV_VERSION=$CUR_VERSION
-          fi
-          echo "Previous Lambda version: $PREV_VERSION"
-
-          aws lambda update-function-code --function-name $LAMBDA_NAME --zip-file fileb://function.zip
-
-          echo "Waiting for Lambda update to complete..."
-          while true; do
-              STATUS=$(aws lambda get-function --function-name $LAMBDA_NAME --query 'Configuration.LastUpdateStatus' --output text)
-              echo "Lambda update status: $STATUS"
-              if [ "$STATUS" == "Successful" ]; then
-                  break
-              elif [ "$STATUS" == "Failed" ]; then
-                  echo "Lambda update failed. Exiting."
-                  exit 1
-              else
-                  sleep 5
-              fi
-          done
-
-          NEW_VERSION=$(aws lambda publish-version --function-name $LAMBDA_NAME --query 'Version' --output text)
-          echo "New Lambda version: $NEW_VERSION"
-
-          aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $NEW_VERSION || \
-          aws lambda update-alias --function-name $LAMBDA_NAME --name prod --function-version $PREV_VERSION
-
-      - name: Deploy API Gateway
-        working-directory: ./terraform
-        run: |
-          API_ID=$(terraform output -raw api_id)
-          aws apigateway create-deployment \
-            --rest-api-id $API_ID \
-            --stage-name prod \
-            --description "Deployed via GitHub Actions"
+          API_URL: ${{ env.API_URL }}
+        run: npm test
