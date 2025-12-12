@@ -181,6 +181,21 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+# --------------------------
+# Lambda Function (Docker Image)
+# --------------------------
+resource "aws_lambda_function" "crud_lambda" {
+  function_name = "crud-lambda"
+  package_type  = "Image"
+  image_uri     = var.lambda_image_uri
+  role          = aws_iam_role.lambda_exec.arn
+  timeout       = 15
+
+  vpc_config {
+    subnet_ids         = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+}
 
 # --------------------------
 # API Gateway
