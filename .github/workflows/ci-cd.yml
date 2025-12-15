@@ -1,129 +1,22 @@
-name: CI/CD Node.js → Lambda + Terraform + Docker
-
+name: Trivy Security Scan
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
-
+    branches:
+      - main
+      - master
 jobs:
-  setup-and-terraform:
+  trivy-scan:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
-      TF_VAR_public_key: ${{ secrets.EC2_PUBLIC_KEY }}
-      LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
-      DB_NAME: ${{ secrets.DB_NAME }}
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      ECR_REPO_NAME: crud-lambda
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: actions/checkout@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+          fetch-depth: 0
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@0.24.0
         with:
-          terraform_version: 1.15.0-alpha20251203
-
-      # ----------------------------
-      # Terraform Init & Apply
-      # ----------------------------
-      - name: Terraform Init
-        working-directory: ./terraform
-        run: terraform init
-
-      - name: Terraform Plan
-        working-directory: ./terraform
-        run: terraform plan -out=tfplan -input=false
-
-      - name: Terraform Apply
-        working-directory: ./terraform
-        run: terraform apply -input=false tfplan
-
-      # ----------------------------
-      # Set Terraform outputs as env
-      # ----------------------------
-      - name: Export Terraform outputs
-        id: tf_outputs
-        working-directory: ./terraform
-        run: |
-          echo "DB_HOST=$(terraform output -raw rds_endpoint | tr -d '\n')" >> $GITHUB_ENV
-          echo "DB_PORT=$(terraform output -raw rds_port | tr -d '\n')" >> $GITHUB_ENV
-
-      # ----------------------------
-      # Create ECR repo if missing
-      # ----------------------------
-      - name: Create ECR repo
-        id: ecr
-        run: |
-          if ! aws ecr describe-repositories --repository-names $ECR_REPO_NAME; then
-            echo "Creating ECR repository..."
-            aws ecr create-repository --repository-name $ECR_REPO_NAME
-          else
-            echo "ECR repository already exists"
-          fi
-          ECR_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO_NAME --query 'repositories[0].repositoryUri' --output text)
-          echo "ECR_URI=$ECR_URI" >> $GITHUB_ENV
-
-      # ----------------------------
-      # Build and Push Docker image
-      # ----------------------------
-      - name: Build and Push Docker Image
-        run: |
-          echo "Logging into ECR..."
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URI
-          echo "Building Docker image..."
-          docker build -t $ECR_URI:latest .
-          echo "Pushing Docker image..."
-          docker push $ECR_URI:latest
-
-      # ----------------------------
-      # Run tests against DB (optional)
-      # ----------------------------
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run tests
-        env:
-          DB_HOST: ${{ env.DB_HOST }}
-          DB_PORT: ${{ env.DB_PORT }}
-          DB_NAME: ${{ env.DB_NAME }}
-          DB_USER: ${{ env.DB_USER }}
-          DB_PASSWORD: ${{ env.DB_PASSWORD }}
-        run: npm test || echo "Skipping tests temporarily"
-
-      # ----------------------------
-      # Deploy Lambda with Docker image
-      # ----------------------------
-      - name: Deploy Lambda from Docker
-        run: |
-          aws lambda update-function-code \
-            --function-name $LAMBDA_FUNCTION_NAME \
-            --image-uri $ECR_URI:latest
-
-      - name: Deploy API Gateway
-        working-directory: ./terraform
-        run: |
-          API_ID=$(terraform output -raw api_id)
-          aws apigateway create-deployment \
-            --rest-api-id $API_ID \
-            --stage-name prod \
-            --description "Deployed via GitHub Actions"
-
-
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL
+          exit-code: 1
+          format: table
