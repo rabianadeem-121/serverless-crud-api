@@ -17,6 +17,6 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
-          severity: CRITICAL
+          severity: CRITICAL,HIGH,MEDIUM
           exit-code: 1
           format: table
